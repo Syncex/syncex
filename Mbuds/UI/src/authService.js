@@ -30,7 +30,7 @@ export const authService = {
     })
   },
 
-    verifyOtp(otp) {
+  verifyOtp(otp) {
     return request(endpoints.verifyOtp, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

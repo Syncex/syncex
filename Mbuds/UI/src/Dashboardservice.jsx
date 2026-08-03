@@ -1,170 +1,296 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  Bluetooth,
+  Brain,
+  Radio,
+  RotateCcw,
+  Sparkles,
+  Unplug,
+  Waves,
+} from "lucide-react";
 import { connectToBluetooth } from "./bluetoothservice.js";
+import { dbService } from "./dbService.js";
 import "./Dashboard.css";
 
-function Dashboard() {
-  const [status, setStatus] = useState("Not connected");
+const MAX_LOG_LENGTH = 50;
+const formatTime = (value) =>
+  new Date(value).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+const bytesToHex = (bytes) =>
+  bytes?.length
+    ? bytes
+        .map((byte) => byte.toString(16).padStart(2, "0").toUpperCase())
+        .join(" ")
+    : "—";
+
+function normalizeState(payload) {
+  if (!payload) {
+    return null;
+  }
+  const value =
+    payload.mentalState ?? payload.mental_state ?? payload.result ?? payload;
+  return typeof value === "object"
+    ? { ...value, timestamp: value.timestamp ?? Date.now() }
+    : { state: String(value), timestamp: Date.now() };
+}
+
+function StateCard({ state }) {
+  if (!state)
+    return (
+      <div className="empty-state">
+        <span className="orb">
+          <Brain size={28} />
+        </span>
+        <h3>Ready when you are</h3>
+        <p>Your interpreted mood signals will appear here in real time.</p>
+      </div>
+    );
+  const entries = Object.entries(state).filter(([key]) => key !== "timestamp");
+  const primary =
+    entries.find(([, value]) => typeof value === "string")?.[1] ??
+    "Current reading";
+  return (
+    <div className="state-card">
+      <div className="state-hero">
+        <span className="state-icon">
+          <Sparkles size={24} />
+        </span>
+        <div>
+          <p className="label">Current state</p>
+          <h3>{String(primary)}</h3>
+          <p>Updated {formatTime(state.timestamp)}</p>
+        </div>
+      </div>
+      <div className="metric-grid">
+        {entries.map(([key, value]) => (
+          <div className="metric" key={key}>
+            <span>{key.replaceAll("_", " ")}</span>
+            <strong>
+              {typeof value === "number" ? value.toFixed(2) : String(value)}
+            </strong>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+export default function Dashboard() {
+  const [status, setStatus] = useState("Ready to connect");
   const [device, setDevice] = useState(null);
-  const [receivedData, setReceivedData] = useState([]);
   const [isConnecting, setIsConnecting] = useState(false);
-
-  async function handleConnect() {
+  const [rawPackets, setRawPackets] = useState([]);
+  const [processedStates, setProcessedStates] = useState([]);
+  const [error, setError] = useState("");
+  const connectionRef = useRef(null);
+  const processingRef = useRef(false);
+  useEffect(() => () => connectionRef.current?.cleanup?.(), []);
+  const processPacket = async (packet) => {
+    setRawPackets((current) => [packet, ...current].slice(0, MAX_LOG_LENGTH));
+    if (processingRef.current) return;
+    processingRef.current = true;
     try {
-      setIsConnecting(true);
-      setStatus("Select a Bluetooth device...");
+      const result = await dbService.getMentalState({ datapacket: packet });//this is the call to the backend
+      const nextState = normalizeState(result);
+      if (nextState) {
+        setProcessedStates((current) =>
+          [nextState, ...current].slice(0, MAX_LOG_LENGTH),
+        );
+        setError("");
+      }
+    } catch (packetError) {
+      setError(packetError.message);
+    } finally {
+      processingRef.current = false;
+    }
+  };
+  const disconnect = () => {
+    connectionRef.current?.cleanup?.();
+    if (connectionRef.current?.device?.gatt?.connected)
+      connectionRef.current.device.gatt.disconnect();
+    connectionRef.current = null;
+    setDevice(null);
+    setStatus("Ready to connect");
+  };
 
-      const connection = await connectToBluetooth((packet) => {
-        // This callback runs whenever the BLE device sends data.
-        setReceivedData((previousData) => [
-          packet,
-          ...previousData.slice(0, 49),
-        ]);
-      });
-
+  const connect = async () => {
+    setIsConnecting(true);
+    setError("");
+    setStatus("Choose your MoodBuds");
+    try {
+      const connection = await connectToBluetooth(processPacket);
+      connectionRef.current = connection;
       setDevice(connection.device);
-
-      setStatus(
-        `Connected to ${connection.device.name || "Unnamed device"}`
-      );
-
+      setStatus("Connected");
       connection.device.addEventListener(
         "gattserverdisconnected",
-        handleDisconnect
+        () => {
+          connectionRef.current = null;
+          setDevice(null);
+          setStatus("Connection lost");
+        },
+        { once: true },
       );
-    } catch (error) {
-      setStatus(
-        error.name === "NotFoundError"
-          ? "No device selected."
-          : error.message
-      );
+      if (connection.notificationCount === 0)
+        setError(
+          "Connected, but this device does not expose a notification stream.",
+        );
+    } catch (connectError) {
+      setStatus("Ready to connect");
+      if (connectError.name !== "NotFoundError") setError(connectError.message);
     } finally {
       setIsConnecting(false);
     }
-  }
+  };
 
-  function handleDisconnect() {
-    setDevice(null);
-    setStatus("Device disconnected");
-  }
-
+  const isLive = Boolean(device);
+  const latestPacket = rawPackets[0];
   return (
-    <main className="dashboard">
-      <header className="dashboard-header">
-        <div>
-          <p className="eyebrow">MOODBUDS</p>
-          <h1>Bluetooth Sensor Dashboard</h1>
-          <p className="description">
-            Connect your wearable and inspect live data packets.
-          </p>
+    <main className="dashboard-shell">
+      <nav className="topbar">
+        <div className="wordmark">
+          <span className="logo-mark">
+            <Waves size={19} />
+          </span>
+          MoodBuds
         </div>
-
+        <span className="nav-label">Sensor dashboard</span>
         <button
-          type="button"
-          className="connect-button"
-          
-          onClick={handleConnect}
-          disabled={isConnecting || Boolean(device)}
+          className={isLive ? "secondary-button" : "primary-button"}
+          onClick={isLive ? disconnect : connect}
+          disabled={isConnecting}
         >
-          {isConnecting
-            ? "Connecting..."
-            : device
-              ? "Connected"
-              : "Connect Bluetooth"}
+          {isLive ? <Unplug size={17} /> : <Bluetooth size={17} />}
+          {isConnecting ? "Connecting…" : isLive ? "Disconnect" : "Connect"}
         </button>
-      </header>
+      </nav>
 
-      <section className="connection-card">
-        <span
-          className={`status-indicator ${device ? "connected" : ""}`}
-        />
-
-        <div>
-          <p className="label">CONNECTION STATUS</p>
-          <h2>{status}</h2>
-
-          {device && (
-            <p className="device-id">
-              Device ID: {device.id}
-            </p>
-          )}
-        </div>
-
-        {device && <span className="live-badge">● LIVE</span>}
-      </section>
-
-      <section className="stats-grid">
-        <article className="stat-card">
-          <p className="label">DEVICE</p>
-          <strong>{device?.name || "--"}</strong>
-        </article>
-
-        <article className="stat-card">
-          <p className="label">PACKETS RECEIVED</p>
-          <strong>{receivedData.length}</strong>
-        </article>
-
-        <article className="stat-card">
-          <p className="label">LATEST PACKET SIZE</p>
-          <strong>
-            {receivedData[0]
-              ? `${receivedData[0].bytes.length} bytes`
-              : "--"}
-          </strong>
-        </article>
-      </section>
-
-      <section className="data-panel">
-        <div className="panel-header">
+      <div className="dashboard-content">
+        <header className="hero">
           <div>
-            <p className="label">LIVE BLE STREAM</p>
-            <h2>Incoming device data</h2>
-          </div>
-
-          <button
-            type="button"
-            className="clear-button"
-            onClick={() => setReceivedData([])}
-            disabled={receivedData.length === 0}
-          >
-            Clear
-          </button>
-        </div>
-
-        {receivedData.length === 0 ? (
-          <div className="empty-state">
-            <div className="bluetooth-icon">ᛒ</div>
-            <h3>No data received yet</h3>
+            <p className="kicker">Live wellbeing insights</p>
+            <h1>How are you feeling?</h1>
             <p>
-              Connect a device that supports Bluetooth notifications.
+              Connect your wearable and watch subtle signals become clear,
+              private insights.
             </p>
           </div>
-        ) : (
-          <div className="packet-list">
-            {receivedData.map((packet, index) => (
-              <article
-                className="packet"
-                key={`${packet.timestamp}-${index}`}
-              >
-                <div className="packet-details">
-                  <span className="packet-number">
-                    Packet #{receivedData.length - index}
-                  </span>
-
-                  <span>{packet.timestamp}</span>
-
-                  <span>
-                    Characteristic: {packet.characteristicUuid}
-                  </span>
-                </div>
-
-                <code>{packet.bytes.join(" ")}</code>
-              </article>
-            ))}
+          <div className={`connection-pill ${isLive ? "live" : ""}`}>
+            <i />
+            {status}
+          </div>
+        </header>
+        {error && (
+          <div className="error-banner" role="alert">
+            {error}
+            <button onClick={() => setError("")} aria-label="Dismiss">
+              ×
+            </button>
           </div>
         )}
-      </section>
+
+        <section className="overview-grid">
+          <article className="insight-panel">
+            <div className="panel-heading">
+              <div>
+                <p className="label">Mindful insight</p>
+                <h2>Your live state</h2>
+              </div>
+              <Brain size={20} />
+            </div>
+            <StateCard state={processedStates[0]} />
+          </article>
+          <aside className="summary-stack">
+            <article className="summary-card">
+              <span className="summary-icon blue">
+                <Radio size={19} />
+              </span>
+              <div>
+                <p>Packets received</p>
+                <strong>{rawPackets.length}</strong>
+                <span>this session</span>
+              </div>
+            </article>
+            <article className="summary-card">
+              <span className="summary-icon violet">
+                <Sparkles size={19} />
+              </span>
+              <div>
+                <p>Insights created</p>
+                <strong>{processedStates.length}</strong>
+                <span>this session</span>
+              </div>
+            </article>
+            <article className="summary-card device-card">
+              <div>
+                <p>Connected device</p>
+                <strong>{device?.name || "No device"}</strong>
+                <span>
+                  {device?.id ? `ID ${device.id}` : "Bluetooth is off"}
+                </span>
+              </div>
+              <i className={isLive ? "active" : ""} />
+            </article>
+          </aside>
+        </section>
+
+        <section className="stream-panel">
+          <div className="panel-heading">
+            <div>
+              <p className="label">Signal activity</p>
+              <h2>Live sensor stream</h2>
+            </div>
+            <button
+              className="icon-button"
+              onClick={() => setRawPackets([])}
+              disabled={!rawPackets.length}
+            >
+              <RotateCcw size={16} /> Clear
+            </button>
+          </div>
+          {!rawPackets.length ? (
+            <div className="stream-empty">
+              <span>
+                <Radio size={22} />
+              </span>
+              <div>
+                <strong>No readings yet</strong>
+                <p>
+                  {isLive
+                    ? "Listening for your first signal…"
+                    : "Connect a device to begin."}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="packet-list">
+              {rawPackets.map((packet, index) => (
+                <div className="packet" key={`${packet.timestamp}-${index}`}>
+                  <span className="packet-index">
+                    {String(rawPackets.length - index).padStart(2, "0")}
+                  </span>
+                  <div>
+                    <strong>{packet.characteristicUuid}</strong>
+                    <code>{bytesToHex(packet.bytes)}</code>
+                  </div>
+                  <time>{formatTime(packet.timestamp)}</time>
+                </div>
+              ))}
+            </div>
+          )}
+          {latestPacket && (
+            <div className="stream-footer">
+              <span>
+                <i className="live-dot" />
+                Receiving live
+              </span>
+              <span>{latestPacket.bytes.length} bytes in latest packet</span>
+            </div>
+          )}
+        </section>
+      </div>
     </main>
   );
 }
-
-export default Dashboard;
