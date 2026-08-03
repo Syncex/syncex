@@ -7,7 +7,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/moodbudsv1': {
-        target: 'http://localhost:8088',
+        target: 'http://localhost:8089',
         changeOrigin: true,
       },
     },

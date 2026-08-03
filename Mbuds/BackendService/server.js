@@ -10,7 +10,7 @@ const multer = require('multer');
 const bodyParser = require('body-parser');
 const ConnectMongo = require('connect-mongo');
 const authRoutes = require('./routes/authServiceroutes');
-const userRoutes=require('./routes/userServiceRoutes');
+const userRoutes = require('./routes/userServiceRoutes');
 const MongoStore = ConnectMongo.default || ConnectMongo.MongoStore || ConnectMongo;
 const imagesDir = path.join(__dirname, 'images');
 
@@ -71,7 +71,7 @@ app.use(session({
     cookie: {
         maxAge: 600000,
         httpOnly: true,
-        sameSite: 'lax',
+        sameSite: 'strict',
         secure: process.env.NODE_ENV === 'production'
     }
 }))
