@@ -1,19 +1,12 @@
-FROM node:20-alpine
+FROM node:26-slim
 
 WORKDIR /app
-
 COPY package*.json ./
-
-
 RUN npm ci --omit=dev
-
-
-COPY . .
-RUN sed -i 's/\r$//' ./entrypoint.sh \
-    && chmod +x entrypoint.sh
-
+COPY --chown=node:node . .
+COPY entrypoint.sh /entrypoint.sh
 ENV NODE_ENV=production
-
-EXPOSE 8088
-
-ENTRYPOINT ["./entrypoint.sh"]
+RUN chmod +x /entrypoint.sh
+USER node
+EXPOSE 8080
+ENTRYPOINT ["/entrypoint.sh"]
