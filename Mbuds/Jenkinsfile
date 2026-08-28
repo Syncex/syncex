@@ -32,7 +32,7 @@ stage('Install Dependencies'){
 }
 stage('Run Tests'){
     steps{
-    echo 'We are performing the testing now '
+    echo 'We  performing the testing now '
     '''
     ping -c 1 http://localhost:8089/
     '''
@@ -57,6 +57,6 @@ post{
      echo "The Build for ${BUILD_NUMBER} has completed"
     }
  
-   }
+    }
 
 }

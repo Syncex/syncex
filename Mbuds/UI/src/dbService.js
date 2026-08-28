@@ -1,23 +1,33 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
+const endpoints = {
+  dashboard: '/moodbudsv1/dashboard',
+  bluetooth: '/moodbudsv1/bluetooth',
+}
 async function getMentalState(data) {
-  const response = await fetch(`${API_BASE_URL}/moodbudsv1/bluetooth`, {
-    credentials: "include",
-    method: "POST",
-    body: JSON.stringify(data),
-    headers: { "Content-Type": "application/json" },
-  });
-  const contentType = response.headers.get("content-type") || "";
-  const payload = contentType.includes("application/json") ? await response.json() : await response.text();
-
-  if (!response.ok) {
-    const message = typeof payload === "object" && payload?.message ? payload.message : "Unable to process this reading.";
-    throw new Error(message);
+  const url = `${API_BASE_URL}${endpoints.bluetooth}`;
+  try {
+    const response = await fetch(url, {
+      credentials: 'include',
+      method: "POST",
+      body: JSON.stringify(data),
+      headers: { 'Content-Type': 'application/json' },
+    }
+    )
+    const contentType = response.headers.get("content-type") || ' ';
+    const payload = contentType.includes('application/json');
+    if (!response.ok) {
+      throw new Error(payload.message || 'Something went wrong.Please try again');
+    }
+    const mood = await response.json();
+    console.log(JSON.parse(mood));
+    return mood;
   }
-  if (typeof payload === "string") {
-    try { return JSON.parse(payload); } catch { return { state: payload }; }
+  catch (error) {
+    throw new Error(`We are encountering some errors${error}`)
   }
-  return payload;
+}
+export const dbService = {
+  getMentalState
 }
 
-export const dbService = { getMentalState };
