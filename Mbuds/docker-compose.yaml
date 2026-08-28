@@ -1,0 +1,43 @@
+services:
+  app:
+    image: moodbuds:latest
+    depends_on:
+      redis:
+        condition: service_healthy
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moodbuds-container
+    environment:
+      NODE_ENV: production
+      PORT: "8080"
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "8089:8080"
+    env_file:
+      - .env
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    container_name: moodbuds-redis
+    volumes:
+      - redis-store:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+volumes:
+  redis-store:
+
+
+
+
+
+
+    
+    
+
+
+
